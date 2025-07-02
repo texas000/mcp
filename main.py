@@ -10,7 +10,7 @@ from typing import List, Dict, Any
 # .env 파일 로드
 load_dotenv()
 
-app = FastAPI(title="FastAPI Sample", description="A simple FastAPI sample application")
+app = FastAPI(title="RYAN MCP SERVER", description="RYAN PERSONAL MCP SERVER")
 
 # Create an MCP server based on this app
 mcp = FastApiMCP(app)
