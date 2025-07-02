@@ -90,6 +90,12 @@ docker-compose down
 - `GET /db/table/{table_name}`: 특정 테이블의 구조 정보 조회
 - `GET /db/table/{table_name}/data`: 특정 테이블의 데이터 조회 (limit, offset 파라미터 지원)
 
+### 노트 관리 엔드포인트 (MCP 통합)
+- `POST /notes`: 새로운 노트 생성 (사용자가 "노트" 언급 시 사용)
+- `GET /notes`: 모든 노트 조회 (페이징 지원)
+- `GET /notes/{note_id}`: 특정 노트 조회
+- `DELETE /notes/{note_id}`: 특정 노트 삭제
+
 ## MCP (Model Context Protocol) 사용법
 
 이 프로젝트는 FastAPI MCP를 통합하여 MCP 클라이언트와 연결할 수 있습니다.
@@ -116,12 +122,7 @@ docker-compose down
 {
   "mcpServers": {
     "fastapi-mcp": {
-      "command": "npx",
-      "args": [
-        "mcp-remote",
-        "http://localhost:8000/mcp",
-        "8080"
-      ]
+      "url": "https://mcp-rosy.vercel.app/mcp"
     }
   }
 }

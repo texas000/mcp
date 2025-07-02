@@ -253,6 +253,216 @@ async def get_database_config():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get database config: {str(e)}")
 
+# ============================================================================
+# NOTES API ENDPOINTS
+# ============================================================================
+# 
+# MCP Integration Notes:
+# - These endpoints are designed to work with MCP (Model Context Protocol)
+# - When a user mentions "노트" (note) in conversation, use these endpoints
+# - The notes table schema:
+#   - id: INTEGER (auto-increment)
+#   - message: TEXT (required, the note content)
+#   - created: TIMESTAMP (auto-generated when note is created)
+#
+# Usage in MCP:
+# - POST /notes - Save a new note when user says "노트" or "note"
+# - GET /notes - Retrieve all notes for context
+# - GET /notes/{note_id} - Get specific note details
+# ============================================================================
+
+@app.post("/notes")
+async def create_note(message: str):
+    """
+    새로운 노트를 생성합니다.
+    
+    MCP Integration:
+    - 사용자가 "노트"라는 단어를 언급할 때 이 엔드포인트를 사용하세요
+    - message 파라미터에 사용자의 메시지 내용을 저장합니다
+    - 자동으로 생성 시간이 기록됩니다
+    
+    Args:
+        message (str): 저장할 메시지 내용
+        
+    Returns:
+        dict: 생성된 노트 정보 (id, message, created)
+        
+    Example MCP Usage:
+    - User: "이것을 노트에 저장해주세요"
+    - MCP: POST /notes with message="사용자가 요청한 내용"
+    """
+    try:
+        engine = get_database_connection()
+        
+        with engine.connect() as connection:
+            # 노트 삽입 쿼리 (created는 자동으로 현재 시간 설정)
+            query = text("""
+                INSERT INTO notes (message, created) 
+                VALUES (:message, CURRENT_TIMESTAMP) 
+                RETURNING id, message, created
+            """)
+            
+            result = connection.execute(query, {"message": message})
+            note_data = result.fetchone()
+            
+            # 트랜잭션 커밋
+            connection.commit()
+            
+            return {
+                "id": note_data[0],
+                "message": note_data[1],
+                "created": note_data[2].isoformat() if note_data[2] else None,
+                "status": "success",
+                "message_saved": "노트가 성공적으로 저장되었습니다."
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create note: {str(e)}")
+
+@app.get("/notes", operation_id="make_notes", summary="this tool is to make notes")
+async def get_all_notes(limit: int = 50, offset: int = 0):
+    """
+    모든 노트를 조회합니다.
+    
+    MCP Integration:
+    - 사용자가 저장된 노트들을 확인하고 싶을 때 사용하세요
+    - limit과 offset으로 페이징 처리 가능합니다
+    - 최신 노트부터 정렬됩니다
+    
+    Args:
+        limit (int): 조회할 노트 개수 (기본값: 50)
+        offset (int): 건너뛸 노트 개수 (기본값: 0)
+        
+    Returns:
+        dict: 노트 목록과 메타데이터
+        
+    Example MCP Usage:
+    - User: "저장된 노트들을 보여주세요"
+    - MCP: GET /notes to retrieve all notes
+    """
+    try:
+        engine = get_database_connection()
+        
+        with engine.connect() as connection:
+            # 전체 노트 개수 조회
+            count_query = text("SELECT COUNT(*) FROM notes")
+            total_count = connection.execute(count_query).fetchone()[0]
+            
+            # 노트 목록 조회 (최신순)
+            query = text("""
+                SELECT id, message, created 
+                FROM notes 
+                ORDER BY created DESC 
+                LIMIT :limit OFFSET :offset
+            """)
+            
+            result = connection.execute(query, {"limit": limit, "offset": offset})
+            
+            notes = []
+            for row in result.fetchall():
+                notes.append({
+                    "id": row[0],
+                    "message": row[1],
+                    "created": row[2].isoformat() if row[2] else None
+                })
+            
+            return {
+                "notes": notes,
+                "total_count": total_count,
+                "limit": limit,
+                "offset": offset,
+                "has_more": (offset + limit) < total_count
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get notes: {str(e)}")
+
+@app.get("/notes/{note_id}")
+async def get_note(note_id: int):
+    """
+    특정 노트를 조회합니다.
+    
+    MCP Integration:
+    - 사용자가 특정 노트를 참조할 때 사용하세요
+    - note_id로 특정 노트의 상세 정보를 가져옵니다
+    
+    Args:
+        note_id (int): 조회할 노트의 ID
+        
+    Returns:
+        dict: 노트 상세 정보
+        
+    Example MCP Usage:
+    - User: "노트 5번을 보여주세요"
+    - MCP: GET /notes/5 to retrieve specific note
+    """
+    try:
+        engine = get_database_connection()
+        
+        with engine.connect() as connection:
+            query = text("SELECT id, message, created FROM notes WHERE id = :note_id")
+            result = connection.execute(query, {"note_id": note_id})
+            note_data = result.fetchone()
+            
+            if not note_data:
+                raise HTTPException(status_code=404, detail=f"Note with ID {note_id} not found")
+            
+            return {
+                "id": note_data[0],
+                "message": note_data[1],
+                "created": note_data[2].isoformat() if note_data[2] else None
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get note: {str(e)}")
+
+@app.delete("/notes/{note_id}")
+async def delete_note(note_id: int):
+    """
+    특정 노트를 삭제합니다.
+    
+    MCP Integration:
+    - 사용자가 노트를 삭제하고 싶을 때 사용하세요
+    - 삭제 후에는 확인 메시지를 반환합니다
+    
+    Args:
+        note_id (int): 삭제할 노트의 ID
+        
+    Returns:
+        dict: 삭제 결과
+        
+    Example MCP Usage:
+    - User: "노트 3번을 삭제해주세요"
+    - MCP: DELETE /notes/3 to delete the note
+    """
+    try:
+        engine = get_database_connection()
+        
+        with engine.connect() as connection:
+            # 노트 존재 여부 확인
+            check_query = text("SELECT id FROM notes WHERE id = :note_id")
+            check_result = connection.execute(check_query, {"note_id": note_id})
+            
+            if not check_result.fetchone():
+                raise HTTPException(status_code=404, detail=f"Note with ID {note_id} not found")
+            
+            # 노트 삭제
+            delete_query = text("DELETE FROM notes WHERE id = :note_id")
+            connection.execute(delete_query, {"note_id": note_id})
+            connection.commit()
+            
+            return {
+                "status": "success",
+                "message": f"노트 ID {note_id}가 성공적으로 삭제되었습니다.",
+                "deleted_id": note_id
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete note: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
